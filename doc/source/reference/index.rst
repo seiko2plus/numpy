@@ -26,6 +26,7 @@ For learning how to use NumPy, see also :ref:`user`.
    distutils_guide
    c-api/index
    internals
+   simd-optimizations
    swig
 
 
