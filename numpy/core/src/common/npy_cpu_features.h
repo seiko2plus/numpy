@@ -110,6 +110,14 @@ npy_cpu_have(NPY_CPU_FEATURE_##FEATURE_NAME)
 NPY_VISIBILITY_HIDDEN PyObject *
 npy_cpu_features_dict(void);
 
+// return a new a list contains basline features of NumPy build.
+NPY_VISIBILITY_HIDDEN PyObject *
+npy_cpu_baseline_list(void);
+
+// return a new a list contains dispatch-able features of NumPy build.
+NPY_VISIBILITY_HIDDEN PyObject *
+npy_cpu_dispatch_list(void);
+
 #ifdef __cplusplus
 }
 #endif

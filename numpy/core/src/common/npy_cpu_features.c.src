@@ -1,4 +1,5 @@
 #include "npy_cpu_features.h"
+#include "npy_cpu_dispatch.h" // to guarantee of having CPU baseline definitions in scope.
 #include "numpy/npy_common.h" // for NPY_INLINE
 #include "numpy/npy_cpu.h" // To guarantee of having CPU definitions in scope.
 
@@ -53,6 +54,44 @@ npy_cpu_features_dict(void)
     /**end repeat**/
     }
     return dict;
+}
+
+#define NPY__CPU_PYLIST_APPEND_CB(FEATURE, LIST) \
+    item = PyUnicode_FromString(NPY_TOSTRING(FEATURE)); \
+    if (item == NULL) { \
+        Py_DECREF(LIST); \
+        return NULL; \
+    } \
+    PyList_SET_ITEM(LIST, index++, item);
+
+NPY_VISIBILITY_HIDDEN PyObject *
+npy_cpu_baseline_list(void)
+{
+#if !defined(NPY_DISABLE_OPTIMIZATION) && NPY_WITH_CPU_BASELINE_N > 0
+    PyObject *list = PyList_New(NPY_WITH_CPU_BASELINE_N), *item;
+    int index = 0;
+    if (list != NULL) {
+        NPY_WITH_CPU_BASELINE_CALL(NPY__CPU_PYLIST_APPEND_CB, list)
+    }
+    return list;
+#else
+    return PyList_New(0);
+#endif
+}
+
+NPY_VISIBILITY_HIDDEN PyObject *
+npy_cpu_dispatch_list(void)
+{
+#if !defined(NPY_DISABLE_OPTIMIZATION) && NPY_WITH_CPU_DISPATCH_N > 0
+    PyObject *list = PyList_New(NPY_WITH_CPU_DISPATCH_N), *item;
+    int index = 0;
+    if (list != NULL) {
+        NPY_WITH_CPU_DISPATCH_CALL(NPY__CPU_PYLIST_APPEND_CB, list)
+    }
+    return list;
+#else
+    return PyList_New(0);
+#endif
 }
 
 /****************************************************************
