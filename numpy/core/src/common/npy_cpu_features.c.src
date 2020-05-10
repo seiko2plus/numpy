@@ -14,6 +14,33 @@ static unsigned char npy__cpu_have[NPY_CPU_FEATURE_MAX];
 static void
 npy__cpu_init_features(void);
 /*
+ * Return CPU feature ID if the feature part of NumPy build CPU baseline
+ * otherwise return 0
+*/
+#if !defined(NPY_DISABLE_OPTIMIZATION) && NPY_WITH_CPU_BASELINE_N > 0
+static int
+npy__cpu_baseline_fid(const char *feature);
+#else
+#define npy__cpu_baseline_fid(X) 0
+#endif
+/*
+ * Return CPU feature ID if the feature part of NumPy build CPU dispatch
+ * otherwise return 0
+*/
+#if !defined(NPY_DISABLE_OPTIMIZATION) && NPY_WITH_CPU_DISPATCH_N > 0
+static int
+npy__cpu_dispatch_fid(const char *feature);
+#else
+#define npy__cpu_dispatch_fid(X) 0
+#endif
+/*
+ * Try to disable CPU dispatched features in runtime,
+ * if environment variable 'NPY_DISABLE_CPU_FEATURES' is defined,
+ * and it only use 'space' as seprator between features
+*/
+static void
+npy__cpu_try_disable_env(void);
+/*
  * check if NumPy build has CPU baseline features
  * that aren't supported by the current hardware
 */
@@ -35,6 +62,7 @@ npy_cpu_init(void)
 {
     npy__cpu_init_features();
     npy__cpu_validate_baseline();
+    npy__cpu_try_disable_env();
 
     if (PyErr_Occurred())
         return -1;
@@ -133,6 +161,102 @@ npy__cpu_validate_baseline(void)
     }
 #endif
 }
+
+static void
+npy__cpu_try_disable_env(void)
+{
+    char *disenv = getenv("NPY_DISABLE_CPU_FEATURES");
+
+#if !defined(NPY_DISABLE_OPTIMIZATION) && (NPY_WITH_CPU_BASELINE_N > 0 || NPY_WITH_CPU_DISPATCH_N > 0)
+
+    #define NPY__MAX_VAR_LEN 1024 // More than enough for this era
+    const char *delim = " ";
+    char disable_features[NPY__MAX_VAR_LEN], *feature;
+
+    if (disenv && disenv[0]) {
+        size_t var_len = strlen(disenv) + 1;
+        if (var_len > NPY__MAX_VAR_LEN) {
+            PyErr_Format(PyExc_RuntimeError,
+                "Maximum acceptable length of NumPy's environment variable "
+                "'NPY_DISABLE_CPU_FEATURES' is %d",
+                NPY__MAX_VAR_LEN - 1
+            );
+            return;
+        }
+        memcpy(disable_features, disenv, var_len);
+    } else {
+        return;
+    }
+
+    feature = strtok(disable_features, delim);
+    while (feature) {
+        int feature_id;
+        #define NPY__CPU_ENV_ERROR_TAIL \
+            "Disabling CPU features from NumPy's environment variable " \
+            "is only allowed for dispatched features.\n"
+
+        if (npy__cpu_baseline_fid(feature) > 0) {
+            PyErr_Format(PyExc_RuntimeError,
+                "CPU feature '%s' is part of NumPy CPU baseline features (" NPY_WITH_CPU_BASELINE ").\n"
+                NPY__CPU_ENV_ERROR_TAIL,
+                feature
+            );
+            break;
+        }
+        if (0 == (feature_id = npy__cpu_dispatch_fid(feature))) {
+            PyErr_Format(PyExc_RuntimeError,
+                "CPU feature '%s' is not part of NumPy CPU dispatched features (" NPY_WITH_CPU_DISPATCH ").\n"
+                NPY__CPU_ENV_ERROR_TAIL,
+                feature
+            );
+            break;
+        }
+        if (!npy__cpu_have[feature_id]) {
+            PyErr_Format(PyExc_RuntimeError,
+                "CPU feature \"%s\" is not supported by current hardware.\n" NPY__CPU_ENV_ERROR_TAIL,
+                feature
+            );
+            break;
+        }
+        // Finaly we can disable it, next
+        npy__cpu_have[feature_id] = 0;
+        feature = strtok(NULL, delim);
+    }
+#else
+    if (disenv && disenv[0]) {
+        PyErr_Format(PyExc_RuntimeError,
+        #ifdef NPY_DISABLE_OPTIMIZATION
+            "NumPy optimization is disabled in this NumPy build\n"
+        #else
+            "There's no CPU features enabled in this NumPy build\n"
+        #endif
+            "Using environment variable 'NPY_DISABLE_CPU_FEATURES' isn't reasonable."
+        );
+    }
+#endif
+}
+
+#define NPY__CPU_FEATURE_ID_CB(FEATURE, WITH_FEATURE) \
+    if (strcmp(NPY_TOSTRING(FEATURE), WITH_FEATURE) == 0) \
+        return NPY_CAT(NPY_CPU_FEATURE_, FEATURE);
+
+#if !defined(NPY_DISABLE_OPTIMIZATION) && NPY_WITH_CPU_BASELINE_N > 0
+static int
+npy__cpu_baseline_fid(const char *feature)
+{
+    NPY_WITH_CPU_BASELINE_CALL(NPY__CPU_FEATURE_ID_CB, feature)
+    return 0;
+}
+#endif
+
+#if !defined(NPY_DISABLE_OPTIMIZATION) && NPY_WITH_CPU_DISPATCH_N > 0
+static int
+npy__cpu_dispatch_fid(const char *feature)
+{
+    NPY_WITH_CPU_DISPATCH_CALL(NPY__CPU_FEATURE_ID_CB, feature)
+    return 0;
+}
+#endif
 
 /****************************************************************
  * This section is reserved to defining @npy__cpu_init_features
@@ -485,5 +609,13 @@ npy__cpu_init_features(void)
 static void
 npy__cpu_init_features(void)
 {
+    /*
+     * just in case if the compiler doesn't respect ANSI
+     * but for knowing paltforms it still nessecery, because @npy__cpu_init_features
+     * may called multiple of times and we need to clear the disabled features by
+     * ENV Var or maybe in the future we can support other methods like
+     * global variables, go back to @npy__cpu_try_disable_env for more understanding
+     */
+    memset(npy__cpu_have, 0, sizeof(npy__cpu_have[0]) * NPY_CPU_FEATURE_MAX);
 }
 #endif
