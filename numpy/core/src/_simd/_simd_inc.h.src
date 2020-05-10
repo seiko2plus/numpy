@@ -1,0 +1,257 @@
+/**
+ * This header works only through '_simd.dispatch.c'
+ */
+#include <Python.h>
+#include "simd/simd.h"
+
+#if NPY_SIMD
+/************************************
+ ** Types
+ ************************************/
+/**
+ * A union gather all data types that supported by the module
+*/
+typedef union
+{
+    // scalars
+    /**begin repeat
+     * #sfx = u8, u16, u32, u64, s8, s16, s32, s64, f32, f64#
+     */
+    npyv_lanetype_@sfx@ @sfx@;
+    /**end repeat**/
+    // sequence
+    /**begin repeat
+     * #sfx  = u8, u16, u32, u64, s8, s16, s32, s64, f32, f64#
+     */
+    npyv_lanetype_@sfx@ *q@sfx@;
+    /**end repeat**/
+    // write back sequence
+    /**begin repeat
+     * #sfx  = u8, u16, u32, u64, s8, s16, s32, s64, f32, f64#
+     */
+    npyv_lanetype_@sfx@ *wq@sfx@;
+    /**end repeat**/
+    // vectors
+    /**begin repeat
+     * #sfx  = u8, u16, u32, u64, s8, s16, s32, s64, f32, b8, b16, b32, b64#
+     */
+    npyv_@sfx@ v@sfx@;
+    /**end repeat**/
+    // multi-vectors x2
+    /**begin repeat
+     * #sfx = u8, u16, u32, u64, s8, s16, s32, s64, f32#
+     */
+    npyv_@sfx@x2 v@sfx@x2;
+    /**end repeat**/
+    // multi-vectors x3
+    /**begin repeat
+     * #sfx = u8, u16, u32, u64, s8, s16, s32, s64, f32#
+     */
+    npyv_@sfx@x3 v@sfx@x3;
+    /**end repeat**/
+#if NPY_SIMD_F64
+    npyv_f64    vf64;
+    npyv_f64x2  vf64x2;
+    npyv_f64x3  vf64x3;
+#endif
+} simd_data;
+
+/**
+ * Data types IDs, suffixes must be same data types that defined
+ * in union 'simd_data', also sorting is matters due to use it
+ * within the following helper macros.
+ *
+ * Any changes in this enum will requires a modification in '_simd_inc_data.h'
+*/
+typedef enum
+{
+    simd_data_none = 0,
+    // scalars
+    /**begin repeat
+     * #sfx = u8, u16, u32, u64, s8, s16, s32, s64, f32, f64#
+     */
+    simd_data_@sfx@,
+    /**end repeat**/
+    // sequences
+    simd_data_q,
+    /**begin repeat
+     * #sfx = u8, u16, u32, u64, s8, s16, s32, s64, f32, f64#
+     */
+    simd_data_q@sfx@,
+    /**end repeat**/
+    // vectors
+    simd_data_v,
+    /**begin repeat
+     * #sfx = u8, u16, u32, u64, s8, s16, s32, s64, f32, f64, b8, b16, b32, b64#
+     */
+    simd_data_v@sfx@,
+    /**end repeat**/
+    // multi-vectors x2
+    simd_data_vx2,
+    /**begin repeat
+     * #sfx = u8, u16, u32, u64, s8, s16, s32, s64, f32, f64#
+     */
+    simd_data_v@sfx@x2,
+    /**end repeat**/
+    // multi-vectors x3
+    simd_data_vx3,
+    /**begin repeat
+     * #sfx = u8, u16, u32, u64, s8, s16, s32, s64, f32, f64#
+     */
+    simd_data_v@sfx@x3,
+    /**end repeat**/
+    simd_data_end,
+} simd_data_type;
+/**
+ * simd_data_type information
+ */
+typedef struct
+{
+    // type name compatible to python style
+    const char *pyname;
+    // returns '1' if the type represent a signed integer
+    int is_signed:1;
+    // returns '1' if the type represent a single or double precision
+    int is_float:1;
+    // returns '1' if the type represent a boolean
+    int is_bool:1;
+    // number of vector lanes,
+    int nlanes;
+    // sizeof lane type
+    int lane_size;
+} simd_data_info;
+
+typedef struct
+{
+    simd_data_type type;
+    simd_data data;
+    // argument object
+    PyObject *obj;
+} simd_arg;
+
+typedef struct
+{
+    PyObject_HEAD
+    // vector type id
+    simd_data_type type;
+    // vector data, aligned for safe casting
+    npyv_lanetype_u8 NPY_DECL_ALIGNED(NPY_SIMD_WIDTH) data[NPY_SIMD_WIDTH];
+} simd_vector;
+
+/************************************
+ ** Declarations (inc_data)
+ ************************************/
+/**
+ * returns data info of certain dtype,
+ * NOTE: not protected against overflow
+ */
+static const simd_data_info *
+simd_data_getinfo(simd_data_type dtype);
+// returns 1 if dtype is a scalar, otherwise '0'
+static int
+simd_data_is_scalar(simd_data_type dtype);
+// returns 1 if dtype is a sequence, otherwise '0'
+static int
+simd_data_is_sequence(simd_data_type dtype);
+// returns 1 if dtype is a vector, otherwise '0'
+static int
+simd_data_is_vector(simd_data_type dtype);
+// returns 1 if dtype is a multi-vector x2, otherwise '0'
+static int
+simd_data_is_vectorx2(simd_data_type dtype);
+// returns 1 if dtype is a multi-vector x3, otherwise '0'
+static int
+simd_data_is_vectorx3(simd_data_type dtype);
+/**
+ * converts dtype to equivalent vector type,
+ * e.g. u8 -> vu8
+ */
+static simd_data_type
+simd_data_cvt2vector(simd_data_type dtype);
+/**
+ * converts dtype to equivalent scalar type,
+ * e.g. vu8 -> u8
+ */
+static simd_data_type
+simd_data_cvt2scalar(simd_data_type dtype);
+
+/************************************
+ ** Declarations (inc_convert)
+ ************************************/
+/**
+ * convert PyObject to simd_data, raise Python exception on
+ * failure.
+ * NOTE: simd_obj2data_clear() must be called after get done
+ * from returned data.
+ * example:
+ ** simd_data d = simd_obj2data(obj, simd_data_qu8);
+ ** ...
+ ** simd_obj2data_clear(d, simd_data_qu8);
+ */
+static simd_data
+simd_obj2data(PyObject *obj, simd_data_type dtype);
+/**
+ * convert simd_data to PyObject, raise Python exception on
+ * failure and return NULL.
+ */
+static PyObject *
+simd_data2obj(simd_data data, simd_data_type dtype);
+
+static int
+simd_data2seq(PyObject *seq, simd_data data, simd_data_type dtype);
+/**
+ * free memory allocations, that caused by simd_obj2data,
+ * mainly to free sequences pointer.
+ */
+static void
+simd_obj2data_clear(simd_data data, simd_data_type dtype);
+
+/************************************
+ ** Declarations (inc_vector)
+ ************************************/
+/**
+ * convert simd_data to PyObject(simd_vector),
+ * raise Python exception on failure and returns NULL.
+ */
+static simd_vector *
+simd_data2vector(simd_data data, simd_data_type type);
+/**
+ * convert PyObject(simd_vector) to simd_data,
+ * raise Python exception on failure.
+ */
+static simd_data
+simd_vector2data(simd_vector *vec, simd_data_type type);
+/**
+ * init and register vector type(PyTypeObject) to PyModule,
+ * vector type can be reached through attribute 'vector_type'.
+ * return 0 on error, 1 on success.
+ */
+static int
+simd_vector_register(PyObject *module);
+/************************************
+ ** Declarations (inc_arg)
+ ************************************/
+/**
+ * Parse and convert intrinsic arguments to SIMD data types,
+ * returns false on failure.
+ *
+ * py_args : module's method arguments
+ * args : array of 'simd_arg'
+ * args_n : length of 'args'
+ */
+static int
+simd_arg_parse(PyObject *py_args, simd_arg *args, int args_n);
+
+static void
+simd_arg_clear(simd_arg *args, int args_n);
+
+/************************************
+ ** Include the definitions
+ ************************************/
+#include "_simd_inc_data.h"
+#include "_simd_inc_convert.h"
+#include "_simd_inc_vector.h"
+#include "_simd_inc_arg.h"
+#include "_simd_inc_easyintrin.h"
+
+#endif // NPY_SIMD

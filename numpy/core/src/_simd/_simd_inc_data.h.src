@@ -1,0 +1,143 @@
+#ifndef NPY_SIMD
+    #error "Not a standalone header"
+#endif
+
+/************************************
+ ** Private Definitions
+ ************************************/
+static simd_data_info simd__data_registry[] =
+{
+    {.pyname="none"},
+    /**begin repeat
+     * #sfx  = u8, u16, u32, u64, s8, s16, s32, s64, f32, f64#
+     * #sig  = 0*4, 1*4, 0*2#
+     * #fp   = 0*4, 0*4, 1*2#
+     * #name = int*8, float, float#
+     */
+    {
+        .pyname="@name@", .is_signed=@sig@, .is_float=@fp@,
+        .lane_size = sizeof(npyv_lanetype_@sfx@)
+    },
+    /**end repeat**/
+    {.pyname="sequence separator"},
+    // sequences
+    /**begin repeat
+     * #sfx = u8, u16, u32, u64, s8, s16, s32, s64, f32, f64#
+     * #sig = 0*4, 1*4, 0*2#
+     * #fp  = 0*4, 0*4, 1*2#
+     * #name = int*8, float, float#
+     */
+    {
+        .pyname="[@name@]", .is_signed=@sig@, .is_float=@fp@,
+        .nlanes=npyv_nlanes_@sfx@, .lane_size = sizeof(npyv_lanetype_@sfx@)
+    },
+    /**end repeat**/
+    // vectors
+    {.pyname="vectors separator"},
+    /**begin repeat
+     * #sfx = u8, u16, u32, u64, s8, s16, s32, s64, f32, f64#
+     * #sig = 0*4, 1*4, 0*2#
+     * #fp  = 0*4, 0*4, 1*2#
+     */
+    {
+        .pyname="npyv_@sfx@", .is_signed=@sig@, .is_float=@fp@,
+        .nlanes=npyv_nlanes_@sfx@, .lane_size = sizeof(npyv_lanetype_@sfx@)
+    },
+    /**end repeat**/
+    // boolean vectors, treated as unsigned and converted internally
+    // to add compatibility among all SIMD extensions
+    /**begin repeat
+     * #sfx  = u8, u16, u32, u64#
+     * #bsfx = b8, b16, b32, b64#
+     */
+    {
+        .pyname="npyv_@bsfx@", .is_bool=1,
+        .nlanes=npyv_nlanes_@sfx@, .lane_size = sizeof(npyv_lanetype_@sfx@)
+    },
+    /**end repeat**/
+    // multi-vectors x2
+    {.pyname="vectors x2 separator"},
+    /**begin repeat
+     * #sfx = u8, u16, u32, u64, s8, s16, s32, s64, f32, f64#
+     * #sig = 0*4, 1*4, 0*2#
+     * #fp  = 0*4, 0*4, 1*2#
+     */
+    {
+        .pyname="npyv_@sfx@x2", .is_signed=@sig@, .is_float=@fp@,
+        .nlanes=2, .lane_size = sizeof(npyv_lanetype_@sfx@)
+    },
+    /**end repeat**/
+    // multi-vectors x3
+    {.pyname="vectors x3 separator"},
+    /**begin repeat
+     * #sfx = u8, u16, u32, u64, s8, s16, s32, s64, f32, f64#
+     * #sig = 0*4, 1*4, 0*2#
+     * #fp  = 0*4, 0*4, 1*2#
+     */
+    {
+        .pyname="npyv_@sfx@x3", .is_signed=@sig@, .is_float=@fp@,
+        .nlanes=3, .lane_size = sizeof(npyv_lanetype_@sfx@)
+    },
+    /**end repeat**/
+    {.pyname="none"}
+};
+
+static simd_data_type
+simd__data_cvt(simd_data_type dtype, simd_data_type to_sep)
+{
+    if (simd_data_is_vectorx3(dtype)) {
+        return dtype - simd_data_vx3 + to_sep;
+    }
+    if (simd_data_is_vectorx2(dtype)) {
+        return dtype - simd_data_vx2 + to_sep;
+    }
+    if (simd_data_is_vector(dtype)) {
+        if (dtype >= simd_data_vb8) {
+            // convert boolean types to unsigned
+            dtype = dtype - simd_data_vb8 + simd_data_vu8;
+        }
+        return dtype - simd_data_v + to_sep;
+    }
+    if (simd_data_is_sequence(dtype)) {
+        return dtype - simd_data_q + to_sep;
+    }
+    if (simd_data_is_scalar(dtype)) {
+        return dtype + to_sep;
+    }
+    return dtype;
+}
+
+/************************************
+ ** Protected Definitions
+ ************************************/
+static const simd_data_info *
+simd_data_getinfo(simd_data_type dtype)
+{ return &simd__data_registry[dtype]; }
+
+static int
+simd_data_is_scalar(simd_data_type dtype)
+{ return dtype >= simd_data_u8 && dtype < simd_data_q; }
+
+static int
+simd_data_is_sequence(simd_data_type dtype)
+{ return dtype >= simd_data_qu8 && dtype < simd_data_v; }
+
+static int
+simd_data_is_vector(simd_data_type dtype)
+{ return dtype >= simd_data_vu8 && dtype < simd_data_vx2; }
+
+static int
+simd_data_is_vectorx2(simd_data_type dtype)
+{ return dtype >= simd_data_vu8x2 && dtype < simd_data_vx3; }
+
+static int
+simd_data_is_vectorx3(simd_data_type dtype)
+{ return dtype >= simd_data_vu8x3 && dtype < simd_data_end; }
+
+static simd_data_type
+simd_data_cvt2vector(simd_data_type dtype)
+{ return simd__data_cvt(dtype, simd_data_v); }
+
+static simd_data_type
+simd_data_cvt2scalar(simd_data_type dtype)
+{ return simd__data_cvt(dtype, simd_data_none); }
