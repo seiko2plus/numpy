@@ -129,7 +129,8 @@ NPY_FINLINE npyv_f64 npyv_not_f64(npyv_f64 a)
 #define npyv_cmpeq_f64 vec_cmpeq
 
 // Int Not Equal
-#ifdef NPY_HAVE_VSX3
+#if defined(NPY_HAVE_VSX3) && (!defined(__GNUC__) || defined(vec_cmpne))
+    // vec_cmpne supported by gcc since version 7
     #define npyv_cmpneq_u8  vec_cmpne
     #define npyv_cmpneq_s8  vec_cmpne
     #define npyv_cmpneq_u16 vec_cmpne
