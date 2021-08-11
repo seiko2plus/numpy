@@ -48,11 +48,13 @@
     NPY_FINLINE npyv_##SFX npyv_##INTRIN##_##SFX(npyv_##SFX a, npyv_##SFX b) \
     { return (npyv_##SFX)vec_##INTRIN((CAST)a, (CAST)b); }
 
-// Up to GCC 6 logical intrinsics don't support bool long long
-#if defined(__GNUC__) && __GNUC__ <= 6
+// Up to GCC 7 logical intrinsics don't support bool long long
+#if defined(__GNUC__) && __GNUC__ <= 7
     #define NPYV_IMPL_VSX_BIN_B64(INTRIN) NPYV_IMPL_VSX_BIN_CAST(INTRIN, b64, npyv_u64)
 #else
-    #define NPYV_IMPL_VSX_BIN_B64(INTRIN) NPYV_IMPL_VSX_BIN_CAST(INTRIN, b64, npyv_b64)
+    #define NPYV_IMPL_VSX_BIN_B64(INTRIN) \
+        NPY_FINLINE npyv_b64 npyv_##INTRIN##_##SFX(npyv_b64 a, npyv_b64 b) \
+        { return vec_##INTRIN(a, b); }
 #endif
 // AND
 #define npyv_and_u8  vec_and
