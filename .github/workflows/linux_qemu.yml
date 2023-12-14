@@ -28,7 +28,7 @@ permissions:
 
 jobs:
   linux_qemu:
-    if: "github.repository == 'numpy/numpy'"
+    if: "github.repository == 'seiko2plus/numpy'"
     continue-on-error: true
     strategy:
       matrix:
